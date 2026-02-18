@@ -10,7 +10,7 @@ import { getStreamingLLM, getKeyPool, getAvailableModels } from "../../config/ll
 /**
  * Streaming orchestration pipeline
  */
-export async function* orchestrateStream({ userId, query }) {
+export async function* orchestrateStream({ userId, query, history = [] }) {
   // 1. classify query
   console.log("Classifying query:", query);
   const type = await classifyQuery(query);
@@ -29,8 +29,10 @@ export async function* orchestrateStream({ userId, query }) {
   const prompt = buildPrompt({
     query,
     memory,
-    type
+    type,
+    history // Pass history for short-term context
   });
+
 
   // 4. reasoning model generates answer as a stream
   console.log("Calling reasoningLLM.stream...");

@@ -38,7 +38,12 @@ const toolbarVariants = {
     visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.3 } }
 };
 
-export default function ChatMain() {
+interface ChatMainProps {
+    conversationId?: string | null;
+    onConversationCreated?: (id: string) => void;
+}
+
+export default function ChatMain({ conversationId, onConversationCreated }: ChatMainProps) {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: 'ai',
@@ -49,6 +54,46 @@ export default function ChatMain() {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Load conversation messages if ID changes
+    useEffect(() => {
+        const loadConversation = async () => {
+            if (!conversationId) {
+                setMessages([{
+                    role: 'ai',
+                    content: "Welcome to Memtex. I've synced your context from ChatGPT, Gemini, and Claude.",
+                    timestamp: new Date()
+                }]);
+                return;
+            }
+
+            setLoading(true);
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                const response = await fetch(`${import.meta.env.VITE_SERVER_URL}/api/chat/${conversationId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${session?.access_token}`
+                    }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.messages) {
+                        setMessages(data.messages.map((m: any) => ({
+                            role: m.role === 'assistant' ? 'ai' : 'user',
+                            content: m.content,
+                            timestamp: new Date() // Ideally use actual timestamp from DB if available
+                        })));
+                    }
+                }
+            } catch (error) {
+                toast.error('Failed to load history');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadConversation();
+    }, [conversationId]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -75,7 +120,10 @@ export default function ChatMain() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ message: userMsg })
+                body: JSON.stringify({
+                    message: userMsg,
+                    conversationId // Send existing ID if any
+                })
             });
 
             if (!response.ok) {
@@ -120,6 +168,9 @@ export default function ChatMain() {
                                         }
                                         return newMsgs;
                                     });
+                                } else if (parsed.conversationId && onConversationCreated) {
+                                    // New conversation was created, notify dashboard
+                                    onConversationCreated(parsed.conversationId);
                                 } else if (parsed.error) {
                                     toast.error(parsed.error);
                                 }

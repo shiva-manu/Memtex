@@ -56,12 +56,14 @@ export const memoryWorker = new Worker(
         try {
           console.log(`[Worker] Invoking LLM for summary...`);
           const summaryResponse = await smartInvoke(`
-Summarize the following ${provider || "unknown"} conversation concisely.
-Focus on decisions, insights, and facts.
-Tag any provider-specific context.
+Summarize the following ${provider || "unknown"} conversation. 
+IMPORTANT: Identify the user's name, goals, and key decisions. 
+Use "The user" to refer to the person in the chat.
+Focus on facts that define their personal context or project (Memtex).
 
 ${text}
-`, 0); // temperature 0 for summaries
+`, 0);
+
           summary = summaryResponse.content.trim();
           console.log(`[Worker] LLM summary complete.`);
         } catch (llmErr) {
@@ -77,7 +79,7 @@ ${text}
             provider: provider || "chatgpt",
             conversationId,
             summary,
-            modelUsed: "gemini-flash-latest",
+            modelUsed: "ollama-mistral",
             vectorized: false
           }
         });

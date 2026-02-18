@@ -103,3 +103,15 @@ model UserApiKey {
 
   @@map("user_api_keys")
 }
+
+model MemtexConversation {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String   @default("New Chat")
+  messages  Json     @default("[]") // Stores {role, content} array
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("memtex_conversations")
+}

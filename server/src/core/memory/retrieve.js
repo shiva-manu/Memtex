@@ -12,12 +12,18 @@ export async function retrieveMemory({ userId, query, provider = null }) {
   // 1️⃣ embed query
   const embedding = await embedText(query);
 
+  // 1.1️⃣ Check for personal identity queries
+  let personalEmbedding = null;
+  if (/name|my name|who am i|who is|about me/i.test(query)) {
+    personalEmbedding = await embedText("user profile, identity, name, and background");
+  }
+
   // 2️⃣ Build filter — always filter by user_id
   const filterClauses = [
     { key: "user_id", match: { value: userId } }
   ];
 
-  // Optionally filter by provider (e.g., "show me only my ChatGPT data")
+  // Optionally filter by provider
   if (provider) {
     filterClauses.push({ key: "provider", match: { value: provider } });
   }
@@ -25,27 +31,34 @@ export async function retrieveMemory({ userId, query, provider = null }) {
   // 3️⃣ vector search — strictly scoped to this user
   let hits = [];
   const start = Date.now();
+  const searchVectors = [embedding];
+  if (personalEmbedding) searchVectors.push(personalEmbedding);
 
   for (let i = 0; i < 3; i++) {
     try {
-      hits = await vectorDB.search("memory_vectors", {
-        vector: embedding,
-        limit: 12,
-        filter: {
-          must: filterClauses
-        }
-      });
-      break; // Success
+      const results = await Promise.all(searchVectors.map(vec =>
+        vectorDB.search("memory_vectors", {
+          vector: vec,
+          limit: 10,
+          filter: { must: filterClauses }
+        })
+      ));
+
+      const uniqueHits = new Map();
+      results.flat().forEach(h => uniqueHits.set(h.id, h));
+      hits = Array.from(uniqueHits.values());
+      break;
     } catch (err) {
       if (err.message.includes("timeout") || err.message.toLowerCase().includes("fetch failed")) {
         console.warn(`[Retrieve] Qdrant search timeout (attempt ${i + 1}/3). Retrying...`);
         if (i === 2) throw err;
-        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
         continue;
       }
       throw err;
     }
   }
+
 
   const duration = Date.now() - start;
   console.log(`[Retrieve] Qdrant search took ${duration}ms, found ${hits?.length || 0} hits.`);

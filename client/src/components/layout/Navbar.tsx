@@ -27,19 +27,23 @@ import {
 import {
     Brain, LogOut, User, Settings, Menu,
     MessageSquare, Shield, Search,
-    Bell, Sparkles, ChevronDown,
+    Bell, Sparkles, ChevronDown, PanelLeft
 
 } from 'lucide-react';
+
 import { toast } from 'sonner';
 
 interface NavbarProps {
     view: 'chat' | 'profile';
     setView: (view: 'chat' | 'profile') => void;
     userEmail?: string;
+    isSidebarOpen: boolean;
+    onToggleSidebar: () => void;
 }
 
-export default function Navbar({ view, setView, userEmail }: NavbarProps) {
+export default function Navbar({ view, setView, userEmail, isSidebarOpen, onToggleSidebar }: NavbarProps) {
     const [mobileOpen, setMobileOpen] = useState(false);
+
 
     const handleLogout = async () => {
         const { error } = await supabase.auth.signOut();
@@ -64,8 +68,28 @@ export default function Navbar({ view, setView, userEmail }: NavbarProps) {
             <div className="relative max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
                     {/* Left: Logo + Nav Links */}
-                    <div className="flex items-center gap-8">
+                    <div className="flex items-center gap-6">
+                        {/* Sidebar Toggle - Only for Chat */}
+                        {view === 'chat' && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={onToggleSidebar}
+                                        className={`h-9 w-9 rounded-xl border border-white/[0.05] bg-white/[0.02] hover:bg-white/[0.1] transition-all ${isSidebarOpen ? 'text-white' : 'text-white/30'}`}
+                                    >
+                                        <PanelLeft className="w-4 h-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="bg-black border-white/10 text-white">
+                                    <p className="text-[10px] font-bold uppercase tracking-widest">{isSidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        )}
+
                         {/* Logo */}
+
                         <motion.div
                             className="flex items-center gap-3 cursor-default"
                             whileHover={{ scale: 1.02 }}
@@ -208,8 +232,8 @@ export default function Navbar({ view, setView, userEmail }: NavbarProps) {
                                             key={item.id}
                                             onClick={() => { setView(item.id); setMobileOpen(false); }}
                                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${view === item.id
-                                                    ? 'bg-white/10 text-white'
-                                                    : 'text-white/40 hover:text-white hover:bg-white/5'
+                                                ? 'bg-white/10 text-white'
+                                                : 'text-white/40 hover:text-white hover:bg-white/5'
                                                 }`}
                                         >
                                             <item.icon className="w-4 h-4" />

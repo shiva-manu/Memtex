@@ -1,14 +1,16 @@
 import express from "express"
-import { chatController } from "../controllers/chat.controller.js";
+import { chatController, listConversations, getConversation, deleteConversation } from "../controllers/chat.controller.js";
 import { auth } from "../../core/Auth/auth.middleware.js";
 
 const router = express.Router();
 
 /**
- * POST /api/chat
- * Body: { message: string }
+ * Chat interactions
  */
 router.post("/", auth, chatController);
-
+router.get("/", auth, listConversations);
+router.get("/:id", auth, getConversation);
+router.delete("/:id", auth, deleteConversation);
 
 export default router;
+

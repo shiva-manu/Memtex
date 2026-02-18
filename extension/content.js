@@ -31,12 +31,67 @@ async function handleSync() {
         const data = scrapeChat();
 
         if (!data.messages || data.messages.length === 0) {
-            console.warn('Memtex: No messages found with current selectors.');
-            alert('No messages found to sync! Please ensure you are in a chat conversation.');
+            console.warn('Memtex: No messages found. Running DOM diagnostic...');
+
+            // DIAGNOSTIC: Dump page structure to help identify correct selectors
+            if (data.provider === 'claude') {
+                console.log('=== MEMTEX CLAUDE DOM DIAGNOSTIC ===');
+                console.log('URL:', window.location.href);
+
+                // Check for known selectors
+                const checks = [
+                    '.font-user-message',
+                    '.font-claude-message',
+                    '[data-testid*="message"]',
+                    '[data-testid*="turn"]',
+                    '[data-testid*="user"]',
+                    '[data-testid*="assistant"]',
+                    '.prose',
+                    '.markdown',
+                    'article',
+                    '[class*="message"]',
+                    '[class*="turn"]',
+                    '[class*="human"]',
+                    '[class*="assistant"]',
+                    '[class*="conversation"]',
+                ];
+                checks.forEach(sel => {
+                    const els = document.querySelectorAll(sel);
+                    if (els.length > 0) {
+                        console.log(`✅ "${sel}": ${els.length} elements found`);
+                        // Show first element's classes and data attributes
+                        const first = els[0];
+                        console.log(`   First element: <${first.tagName.toLowerCase()} class="${first.className}" data-testid="${first.getAttribute('data-testid') || ''}">`);
+                        console.log(`   Text preview: "${first.innerText.substring(0, 80).replace(/\n/g, '↵')}"`);
+                    } else {
+                        console.log(`❌ "${sel}": 0 elements`);
+                    }
+                });
+
+                // Dump all unique data-testid values on the page
+                const allTestIds = new Set();
+                document.querySelectorAll('[data-testid]').forEach(el => allTestIds.add(el.getAttribute('data-testid')));
+                console.log('All data-testid values on page:', [...allTestIds]);
+
+                // Dump all unique class names that contain "message" or "turn"
+                const relevantClasses = new Set();
+                document.querySelectorAll('*').forEach(el => {
+                    el.classList.forEach(cls => {
+                        if (cls.includes('message') || cls.includes('turn') || cls.includes('human') || cls.includes('assistant') || cls.includes('conversation')) {
+                            relevantClasses.add(cls);
+                        }
+                    });
+                });
+                console.log('Relevant class names:', [...relevantClasses]);
+                console.log('=== END DIAGNOSTIC ===');
+            }
+
+            alert('No messages found to sync!\n\nPlease open the browser console (F12 → Console) and look for "MEMTEX CLAUDE DOM DIAGNOSTIC" to see what selectors are available. Share this info to fix the issue.');
             btn.innerHTML = originalText;
             btn.classList.remove('syncing');
             return;
         }
+
 
         // Fixed Server URL
         const serverUrl = 'http://localhost:3000';
@@ -152,23 +207,96 @@ function scrapeChat() {
     }
 
     // === Claude Scraper ===
-    else if (url.includes('claude.ai')) {
-        provider = 'claude';
-        // Improved Claude selectors
-        const msgElems = document.querySelectorAll('.font-claude-message, .font-user-message, [data-testid="message-content"]');
-        msgElems.forEach(el => {
-            const isAssistant = el.classList.contains('font-claude-message') ||
-                el.closest('[data-testid="assistant-message"]');
+    else if (provider === 'claude') {
+        console.log("Memtex: Claude Scraper v4 starting...");
+        // CONFIRMED from DOM diagnostic:
+        // - User messages: data-testid="user-message" (class has !font-user-message with ! prefix)
+        // - Assistant messages: NO data-testid, found by DOM position (sibling of user turn wrapper)
 
-            const text = el.innerText.trim();
-            if (text) {
-                messages.push({
-                    role: isAssistant ? 'assistant' : 'user',
-                    content: text
-                });
+        // Helper: Check if text looks like sidebar/UI content
+        function isSidebarText(text) {
+            return (
+                text.includes('All chats') ||
+                text.includes('New chat') ||
+                text.includes('Ctrl+⇧') ||
+                text.includes('Free plan') ||
+                (text.includes('Recents') && text.includes('Hide'))
+            );
+        }
+
+        // Helper: Clean assistant text
+        function cleanAssistant(text) {
+            return text
+                .replace(/^Claude\n?/, '')
+                .replace(/Sonnet \d+(\.\d+)?\nClaude is AI.*$/s, '')
+                .replace(/\nCopy$/, '')
+                .trim();
+        }
+
+        // Step 1: Find all user message elements using data-testid (confirmed working)
+        const userMsgEls = document.querySelectorAll('[data-testid="user-message"]');
+        console.log(`Memtex: Found ${userMsgEls.length} user-message elements via data-testid`);
+
+        if (userMsgEls.length > 0) {
+            for (const userEl of userMsgEls) {
+                // Add user message
+                const userText = userEl.innerText.trim();
+                if (userText) messages.push({ role: 'user', content: userText });
+
+                // Step 2: Walk UP from the user message element to find its "turn wrapper"
+                // The turn wrapper is the element whose NEXT SIBLING is the assistant response
+                let el = userEl;
+                let foundAssistant = false;
+
+                for (let depth = 0; depth < 12; depth++) {
+                    el = el.parentElement;
+                    if (!el || el === document.body) break;
+
+                    const next = el.nextElementSibling;
+                    if (!next) continue;
+
+                    // The next sibling should NOT contain a user-message data-testid
+                    const nextHasUser = next.querySelector('[data-testid="user-message"]');
+                    const nextText = next.innerText.trim();
+
+                    console.log(`Memtex: Depth ${depth}, next sibling tag=${next.tagName}, text="${nextText.substring(0, 50).replace(/\n/g, '↵')}"`);
+
+                    if (!nextHasUser && nextText.length > 20 && !isSidebarText(nextText)) {
+                        const cleaned = cleanAssistant(nextText);
+                        if (cleaned.length > 10) {
+                            messages.push({ role: 'assistant', content: cleaned });
+                            console.log(`Memtex: Found assistant at depth ${depth}: "${cleaned.substring(0, 60)}..."`);
+                            foundAssistant = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundAssistant) {
+                    console.log(`Memtex: Could not find assistant response for user msg: "${userText.substring(0, 40)}"`);
+                }
             }
-        });
+        }
+
+        // Deduplicate: remove messages whose content is contained in a longer same-role message
+        if (messages.length > 1) {
+            const deduped = [];
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
+                const isDuplicate = messages.some((other, j) =>
+                    i !== j &&
+                    other.role === msg.role &&
+                    other.content.includes(msg.content) &&
+                    other.content.length > msg.content.length
+                );
+                if (!isDuplicate) deduped.push(msg);
+            }
+            messages = deduped;
+        }
+
+        console.log(`Memtex: Final: ${messages.length} messages (user: ${messages.filter(m => m.role === 'user').length}, assistant: ${messages.filter(m => m.role === 'assistant').length})`);
     }
+
 
     // === Gemini Scraper ===
     else if (url.includes('gemini.google.com')) {
@@ -202,6 +330,7 @@ function scrapeChat() {
 
     return { title, messages, provider };
 }
+
 
 // Initial injection
 injectSyncButton();
