@@ -30,8 +30,11 @@ async function handleSync() {
 
         const data = scrapeChat();
 
-        if (!data.messages.length) {
-            alert('No messages found to sync!');
+        if (!data.messages || data.messages.length === 0) {
+            console.warn('Memtex: No messages found with current selectors.');
+            alert('No messages found to sync! Please ensure you are in a chat conversation.');
+            btn.innerHTML = originalText;
+            btn.classList.remove('syncing');
             return;
         }
 
@@ -44,6 +47,8 @@ async function handleSync() {
 
         if (!apiKey) {
             alert('Please set your Memtex API Key in the extension popup!');
+            btn.innerHTML = originalText;
+            btn.classList.remove('syncing');
             return;
         }
 
@@ -56,7 +61,7 @@ async function handleSync() {
             body: JSON.stringify({
                 title: data.title,
                 messages: data.messages,
-                source: data.source
+                provider: data.provider // Changed from source to provider
             })
         });
 
@@ -64,8 +69,14 @@ async function handleSync() {
         if (response.status === 401) {
             throw new Error('Invalid API Key. Please update it in the extension popup.');
         } else if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || 'Server connection failed');
+            let errorMsg = 'Server connection failed';
+            try {
+                const errData = await response.json();
+                errorMsg = errData.error || errorMsg;
+            } catch (e) {
+                errorMsg = `${response.status} ${response.statusText}`;
+            }
+            throw new Error(errorMsg);
         }
 
         btn.innerText = '✅ Synced!';
@@ -86,76 +97,94 @@ function scrapeChat() {
     const url = window.location.href;
     let messages = [];
     let title = document.title;
-    let source = 'other';
+    let provider = 'chatgpt'; // Default
+
+    // === Detect Provider First ===
+    if (url.includes('chatgpt.com') || url.includes('chat.openai.com')) {
+        provider = 'chatgpt';
+    } else if (url.includes('claude.ai')) {
+        provider = 'claude';
+    } else if (url.includes('gemini.google.com')) {
+        provider = 'gemini';
+    }
+
+    console.log(`Memtex: Detected platform: ${provider}`);
 
     // === ChatGPT Scraper ===
-    if (url.includes('chatgpt.com') || url.includes('chat.openai.com')) {
-        source = 'chatgpt';
+    if (provider === 'chatgpt') {
+        // Strategy 1: Article-based (most robust for recent ChatGPT)
+        const articles = document.querySelectorAll('article');
 
-        // Try selecting by conversation turns (most reliable current method)
-        // ChatGPT often puts turns in 'article' or 'div' with testid 'conversation-turn-...'
-        const turns = document.querySelectorAll('article[data-testid^="conversation-turn-"], div[data-testid^="conversation-turn-"]');
+        if (articles.length > 0) {
+            articles.forEach(article => {
+                const authorRoleElem = article.querySelector('[data-message-author-role]');
+                const role = authorRoleElem ? authorRoleElem.getAttribute('data-message-author-role') : null;
 
-        if (turns.length > 0) {
-            turns.forEach(turn => {
-                // Determine role
-                const isAssistant = turn.querySelector('[data-message-author-role="assistant"]');
-                const isUser = turn.querySelector('[data-message-author-role="user"]');
-                const role = isAssistant ? 'assistant' : (isUser ? 'user' : 'user'); // Default to user if unsure
-
-                // Extract content
-                const contentDiv = turn.querySelector('.markdown, .whitespace-pre-wrap');
-                if (contentDiv) {
-                    messages.push({
-                        role,
-                        content: contentDiv.innerText.trim()
-                    });
+                if (role) {
+                    const contentDiv = article.querySelector('.markdown, .prose, .whitespace-pre-wrap, div[class*="text-message"]');
+                    if (contentDiv && contentDiv.innerText.trim()) {
+                        messages.push({
+                            role: role === 'assistant' ? 'assistant' : 'user',
+                            content: contentDiv.innerText.trim()
+                        });
+                    }
                 }
             });
         }
 
-        // Fallback: older generic selector
-        // Sometimes just looking for message-content works
+        // Strategy 2: Fallback for different layouts (like small screens or shared chats)
         if (messages.length === 0) {
-            const genericTurns = document.querySelectorAll('.message-content, .text-message');
-            genericTurns.forEach(div => {
-                // Harder to distinguish role here without context, assume user based on class? No, risky.
-                // Let's just grab text.
-                messages.push({ role: 'user', content: div.innerText.trim() });
+            const turns = document.querySelectorAll('[data-testid^="conversation-turn-"], [data-message-author-role]');
+            turns.forEach(turn => {
+                const roleMark = turn.querySelector('[data-message-author-role]') || (turn.hasAttribute('data-message-author-role') ? turn : null);
+                if (roleMark) {
+                    const role = roleMark.getAttribute('data-message-author-role');
+                    const contentDiv = turn.querySelector('.markdown, .prose, .whitespace-pre-wrap') || turn;
+                    if (contentDiv && contentDiv !== turn && contentDiv.innerText.trim()) {
+                        messages.push({
+                            role: role === 'assistant' ? 'assistant' : 'user',
+                            content: contentDiv.innerText.trim()
+                        });
+                    }
+                }
             });
         }
     }
 
     // === Claude Scraper ===
     else if (url.includes('claude.ai')) {
-        source = 'claude';
-        const msgElems = document.querySelectorAll('.font-claude-message, .font-user-message');
+        provider = 'claude';
+        // Improved Claude selectors
+        const msgElems = document.querySelectorAll('.font-claude-message, .font-user-message, [data-testid="message-content"]');
         msgElems.forEach(el => {
-            const isAssistant = el.classList.contains('font-claude-message');
-            messages.push({
-                role: isAssistant ? 'assistant' : 'user',
-                content: el.innerText.trim()
-            });
+            const isAssistant = el.classList.contains('font-claude-message') ||
+                el.closest('[data-testid="assistant-message"]');
+
+            const text = el.innerText.trim();
+            if (text) {
+                messages.push({
+                    role: isAssistant ? 'assistant' : 'user',
+                    content: text
+                });
+            }
         });
     }
 
     // === Gemini Scraper ===
     else if (url.includes('gemini.google.com')) {
-        source = 'gemini';
+        provider = 'gemini';
         title = document.querySelector('.conversation-title')?.innerText || document.title;
 
-        // Strategy 1: Look for specific message containers (2024+ UI)
-        // Gemini often wraps user queries in specific classes and bot responses in others
-        const allBlocks = document.querySelectorAll('.query-container, .response-container, user-query, model-response');
-
-        if (allBlocks.length > 0) {
-            allBlocks.forEach(block => {
-                const isModel = block.tagName === 'MODEL-RESPONSE' || block.classList.contains('response-container') || block.classList.contains('model-response');
-                const textElem = block.querySelector('.query-text, .message-content, .markdown, .snippet-content') || block;
-
+        // Gemini uses specific tags for model and user turns
+        const chatContainer = document.querySelector('chat-window, .conversation-container, main');
+        if (chatContainer) {
+            const allElements = chatContainer.querySelectorAll('user-query, model-response, .query-container, .response-container');
+            allElements.forEach(el => {
+                const isModel = el.tagName === 'MODEL-RESPONSE' || el.classList.contains('response-container') || el.classList.contains('model-response');
+                const textElem = el.querySelector('.query-text, .message-content, .markdown, .snippet-content') || el;
                 const text = textElem.innerText.trim();
-                // Filter out UI noise
-                if (text && !text.includes('Search related to') && text !== 'Syncing...') {
+
+                if (text && !text.includes('Search related to')) {
                     messages.push({
                         role: isModel ? 'assistant' : 'user',
                         content: text
@@ -164,18 +193,14 @@ function scrapeChat() {
             });
         }
 
-        // Strategy 2: Fallback to scanning for large text blocks if specific containers fail
+        // Fallback for Gemini if interleaved search fails
         if (messages.length === 0) {
-            const manualQueries = document.querySelectorAll('h1, h2, .query-text'); // User queries often in headers or query-text
-            const manualResponses = document.querySelectorAll('.markdown'); // AI responses usually markdown
-
-            // This is imperfect alignment but better than nothing
-            manualQueries.forEach(q => messages.push({ role: 'user', content: q.innerText.trim() }));
-            manualResponses.forEach(r => messages.push({ role: 'assistant', content: r.innerText.trim() }));
+            document.querySelectorAll('.query-text').forEach(q => messages.push({ role: 'user', content: q.innerText.trim() }));
+            document.querySelectorAll('.markdown').forEach(r => messages.push({ role: 'assistant', content: r.innerText.trim() }));
         }
     }
 
-    return { title, messages, source };
+    return { title, messages, provider };
 }
 
 // Initial injection

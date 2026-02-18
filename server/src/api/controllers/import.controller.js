@@ -7,13 +7,23 @@ export async function importController(req, res) {
   try {
     let title = "New Import";
     let messageData = [];
-    const provider = req.body.provider || req.query.provider || "chatgpt"; // default to chatgpt for backward compat
+    // Log the incoming request to debug provider issues
+    console.log("Import request body:", JSON.stringify(req.body));
+
+    // Support both 'provider' and 'source' for backward/cross compatibility
+    let provider = req.body.provider || req.body.source || req.query.provider || req.query.source;
+
+    // If specifically not mentioned, ONLY then default to chatgpt
+    if (!provider) {
+      provider = "chatgpt";
+    }
 
     if (!VALID_PROVIDERS.includes(provider)) {
       return res.status(400).json({
-        error: `Invalid provider. Must be one of: ${VALID_PROVIDERS.join(", ")}`
+        error: `Invalid provider "${provider}". Must be one of: ${VALID_PROVIDERS.join(", ")}`
       });
     }
+    console.log("Using provider:", provider);
 
     // Case 1: Direct JSON Import (from Extension)
     if (req.body.messages && Array.isArray(req.body.messages)) {

@@ -27,8 +27,10 @@ export const memoryWorker = new Worker(
   "memory-queue",
   async (job) => {
     try {
+      console.log(`[Worker] Received job: ${job.name} (ID: ${job.id})`);
       if (job.name === "summarize-conversation") {
         const { conversationId, userId, provider } = job.data;
+        console.log(`[Worker] Processing conversation ${conversationId} for user ${userId} (${provider})`);
 
         // 1. Fetch messages from the correct provider table
         let messages = [];
@@ -53,20 +55,28 @@ export const memoryWorker = new Worker(
         }
 
         const text = messages.map((m) => m.content).join("\n");
+        console.log(`[Worker] Concat text length: ${text.length} chars`);
 
-        // 2. Summarize using LLM
-        const summaryResponse = await cheapLLM.invoke(`
+        // 2. Summarize using LLM (with fallback to raw text if quota is hit)
+        let summary = "";
+        try {
+          console.log(`[Worker] Invoking LLM for summary...`);
+          const summaryResponse = await cheapLLM.invoke(`
 Summarize the following ${provider || "unknown"} conversation concisely.
 Focus on decisions, insights, and facts.
 Tag any provider-specific context.
 
 ${text}
 `);
-
-        const summary = summaryResponse.content.trim();
+          summary = summaryResponse.content.trim();
+          console.log(`[Worker] LLM summary complete.`);
+        } catch (llmErr) {
+          console.error("Summarization failed (likely quota), falling back to raw text:", llmErr.message);
+          summary = text.slice(0, 1000); // Use first 1000 chars as fallback
+        }
 
         // 3. Store summary in the unified conversation_summaries table
-        //    This includes userId + provider for isolation
+        console.log(`[Worker] Creating conversation summary in DB...`);
         const summaryRow = await prisma.conversationSummary.create({
           data: {
             userId,
@@ -77,12 +87,15 @@ ${text}
             vectorized: false
           }
         });
+        console.log(`[Worker] DB Row created: ${summaryRow.id}`);
 
         // 4. Embed summary
+        console.log(`[Worker] Creating embedding...`);
         const vector = await embedText(summary);
+        console.log(`[Worker] Embedding complete (dim: ${vector.length})`);
 
         // 5. Store vector with user_id AND provider for strict isolation
-        //    This ensures NO cross-user context contamination
+        console.log(`[Worker] Upserting to Qdrant...`);
         await vectorDB.upsert("memory_vectors", {
           points: [
             {
@@ -97,6 +110,7 @@ ${text}
             },
           ],
         });
+        console.log(`[Worker] Successfully upserted vector to Qdrant for summary ${summaryRow.id}`);
 
         // 6. Mark summary as vectorized
         await prisma.conversationSummary.update({
