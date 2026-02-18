@@ -1,75 +1,41 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOllama } from "@langchain/ollama";
 import { env } from "./env.js";
 
 /**
- * Creates an LLM instance with a specific key and model.
+ * Creates an Ollama LLM instance.
  */
-function createLLM(apiKey, model = "gemini-1.5-flash", temperature = 0.3) {
-    return new ChatGoogleGenerativeAI({
+function createLLM(model = "mistral", temperature = 0.3) {
+    return new ChatOllama({
         model: model,
-        apiVersion: "v1beta",
         temperature: temperature,
-        apiKey: apiKey,
-        timeout: 30000,
-        maxRetries: 0, // We handle retries manually to switch keys/models
+        baseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
     });
 }
 
 /**
- * A wrapper that handles 429 (Rate Limit) by rotating keys and models.
+ * Unified invoker for local LLM
  */
-async function invokeWithFallback(prompt, temperature = 0.3) {
-    // Unique keys from all sources
-    const keys = Array.from(new Set([
-        ...env.GOOGLE_API_KEYS,
-        env.GOOGLE_API_KEY,
-        env.GOOGLE_EMBED_API_KEY
-    ])).filter(Boolean);
-
-    const models = ["gemini-1.5-flash", "gemini-1.5-flash-8b"];
-
-    let lastError = null;
-
-    for (const key of keys) {
-        for (const model of models) {
-            try {
-                const llm = createLLM(key, model, temperature);
-                return await llm.invoke(prompt);
-            } catch (err) {
-                lastError = err;
-                if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
-                    console.log(`[LLM Fallback] Rate limited on ${model} with current key. Trying next option...`);
-                    continue;
-                }
-                throw err; // Re-throw if it's not a rate limit error
-            }
-        }
+export async function smartInvoke(prompt, temperature = 0.3) {
+    try {
+        const llm = createLLM("mistral", temperature);
+        return await llm.invoke(prompt);
+    } catch (err) {
+        console.error("[Ollama] Invoke Error:", err.message);
+        throw err;
     }
-    throw lastError;
 }
 
-// Export the dynamic invoker for classification
-export const smartInvoke = invokeWithFallback;
+// Helper to get a streaming LLM
+export function getStreamingLLM(keyIndex = 0, model = "mistral") {
+    return createLLM(model, 0.3);
+}
 
-// Keep these for streaming (streaming is harder to fallback mid-stream, 
-// so we'll just give them the best starting point)
-export const reasoningLLM = createLLM(env.GOOGLE_API_KEY, "gemini-1.5-flash", 0.3);
-export const cheapLLM = createLLM(env.GOOGLE_API_KEY, "gemini-1.5-flash", 0);
-
-// Helper to get all unique keys as a pool
+// Placeholder for key pool since Ollama doesn't need external keys
 export function getKeyPool() {
-    return Array.from(new Set([
-        ...env.GOOGLE_API_KEYS,
-        env.GOOGLE_API_KEY,
-        env.GOOGLE_EMBED_API_KEY
-    ])).filter(Boolean);
+    return ["local-ollama"];
 }
 
-// Helper to get a streaming LLM with an alternative key if needed
-export function getStreamingLLM(index = 0) {
-    const pool = getKeyPool();
-    // Handle both boolean (from old code) and numeric index
-    const idx = (typeof index === "boolean") ? (index ? 1 : 0) : index;
-    const key = pool[idx % pool.length] || pool[0];
-    return createLLM(key, "gemini-1.5-flash", 0.3);
+// Available local models
+export function getAvailableModels() {
+    return ["mistral"];
 }

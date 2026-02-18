@@ -3,7 +3,8 @@ import { env } from "./env.js";
 
 export const vectorDB = new QdrantClient({
     url: env.QDRANT_URL,
-    apiKey: env.QDRANT_API_KEY
+    apiKey: env.QDRANT_API_KEY,
+    timeout: 30000 // 30 seconds
 });
 
 
@@ -22,7 +23,7 @@ export async function initVectorDB() {
             if (err.status !== 404) throw err;
         }
 
-        const targetSize = 3072;
+        const targetSize = 768; // nomic-embed-text size
 
         if (collectionInfo) {
             const currentSize = collectionInfo.config?.params?.vectors?.size;

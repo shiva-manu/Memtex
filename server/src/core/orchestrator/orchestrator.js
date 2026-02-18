@@ -1,7 +1,7 @@
 import { classifyQuery } from "./classifier.js";
 import { retrieveMemory } from "../memory/retrieve.js";
 import { buildPrompt } from "./prompt.js";
-import { getStreamingLLM, getKeyPool } from "../../config/llm.js";
+import { getStreamingLLM, getKeyPool, getAvailableModels } from "../../config/llm.js";
 
 
 /**
@@ -36,25 +36,37 @@ export async function* orchestrateStream({ userId, query }) {
   console.log("Calling reasoningLLM.stream...");
   let stream;
   const pool = getKeyPool();
+  const models = getAvailableModels();
+  const startIdx = Math.floor(Math.random() * pool.length);
 
   for (let i = 0; i < pool.length; i++) {
-    try {
-      console.log(`[Orchestrator] Attempting stream with key index ${i}...`);
-      stream = await getStreamingLLM(i).stream(prompt);
-      break; // Success!
-    } catch (err) {
-      if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
-        console.warn(`[Orchestrator] Key ${i} rate limited.`);
-        if (i === pool.length - 1) {
-          yield "⚠️ **Memtex Service Notice**: All available AI keys are currently rate-limited. Please try again in a few minutes.";
-          return;
+    const keyIdx = (startIdx + i) % pool.length;
+    let keySuccess = false;
+
+    for (const model of models) {
+      try {
+        console.log(`[Orchestrator] Attempting stream with key index ${keyIdx}, model ${model}...`);
+        stream = await getStreamingLLM(keyIdx, model).stream(prompt);
+        keySuccess = true;
+        break; // Success with this model!
+      } catch (err) {
+        if (err.message.includes("429") || err.message.toLowerCase().includes("quota") || err.message.includes("503") || err.message.includes("timeout")) {
+          console.warn(`[Orchestrator] Key ${keyIdx} issue (${err.message}) for model ${model}. Trying next...`);
+          continue; // Try next model or key
+        } else {
+          console.error(`[Orchestrator] Critical LLM error with key ${keyIdx} / model ${model}:`, err.message);
+          // If we have more keys/models, maybe we shouldn't give up immediately?
+          // But for now, let's keep the error and try the next option instead of returning.
+          continue;
         }
-        continue; // Try next key
-      } else {
-        console.error("Orchestration LLM error:", err.message);
-        yield "❌ **Orchestration Error**: I encountered an issue while processing your request.";
-        return;
       }
+    }
+
+    if (keySuccess) break; // Finished trying models, found one that worked
+
+    if (i === pool.length - 1) {
+      yield "⚠️ **Memtex Service Notice**: All available AI keys and models are currently rate-limited. Please try again in a few minutes.";
+      return;
     }
   }
 

@@ -23,13 +23,33 @@ export async function retrieveMemory({ userId, query, provider = null }) {
   }
 
   // 3️⃣ vector search — strictly scoped to this user
-  const hits = await vectorDB.search("memory_vectors", {
-    vector: embedding,
-    limit: 12,
-    filter: {
-      must: filterClauses
+  let hits = [];
+  const start = Date.now();
+
+  for (let i = 0; i < 3; i++) {
+    try {
+      hits = await vectorDB.search("memory_vectors", {
+        vector: embedding,
+        limit: 12,
+        filter: {
+          must: filterClauses
+        }
+      });
+      break; // Success
+    } catch (err) {
+      if (err.message.includes("timeout") || err.message.toLowerCase().includes("fetch failed")) {
+        console.warn(`[Retrieve] Qdrant search timeout (attempt ${i + 1}/3). Retrying...`);
+        if (i === 2) throw err;
+        await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
+        continue;
+      }
+      throw err;
     }
-  });
+  }
+
+  const duration = Date.now() - start;
+  console.log(`[Retrieve] Qdrant search took ${duration}ms, found ${hits?.length || 0} hits.`);
+
 
   if (!hits?.length) {
     return emptyMemory();

@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import prisma from "../db/prisma.js";
 
-import { cheapLLM } from "../config/llm.js";
+import { smartInvoke } from "../config/llm.js";
 import { vectorDB } from "../config/vector.js";
 import { env } from "../config/env.js";
 import { embedText } from "../core/embeddings/embed.js";
@@ -55,13 +55,13 @@ export const memoryWorker = new Worker(
         let summary = "";
         try {
           console.log(`[Worker] Invoking LLM for summary...`);
-          const summaryResponse = await cheapLLM.invoke(`
+          const summaryResponse = await smartInvoke(`
 Summarize the following ${provider || "unknown"} conversation concisely.
 Focus on decisions, insights, and facts.
 Tag any provider-specific context.
 
 ${text}
-`);
+`, 0); // temperature 0 for summaries
           summary = summaryResponse.content.trim();
           console.log(`[Worker] LLM summary complete.`);
         } catch (llmErr) {

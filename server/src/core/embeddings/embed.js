@@ -1,65 +1,43 @@
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
+import { OllamaEmbeddings } from "@langchain/ollama";
 import crypto from "crypto";
-import { getKeyPool } from "../../config/llm.js";
 
-function getEmbedder(apiKey) {
-    return new GoogleGenerativeAIEmbeddings({
-        apiKey: apiKey,
-        model: "text-embedding-004", // Fixed model name
-        apiVersion: "v1beta",
+function getEmbedder() {
+    return new OllamaEmbeddings({
+        model: "nomic-embed-text",
+        baseUrl: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
     });
 }
 
 /**
- * Embed single text with fallback
+ * Embed single text with Ollama
  */
 export async function embedText(text) {
     if (!text || typeof text !== "string") {
         throw new Error("Invalid text for embedding");
     }
 
-    const pool = getKeyPool();
-    let lastError = null;
-
-    for (let i = 0; i < pool.length; i++) {
-        try {
-            const embedder = getEmbedder(pool[i]);
-            return await embedder.embedQuery(clean(text));
-        } catch (err) {
-            lastError = err;
-            if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
-                console.warn(`[Embedding] Key ${i} rate limited. Retrying with next key...`);
-                continue;
-            }
-            throw err;
-        }
+    try {
+        const embedder = getEmbedder();
+        return await embedder.embedQuery(clean(text));
+    } catch (err) {
+        console.error("[Ollama Embedding] Error:", err.message);
+        throw err;
     }
-    throw lastError;
 }
 
 /**
- * Embed multiple texts with fallback
+ * Embed multiple texts with Ollama
  */
 export async function embedBatch(texts = []) {
     if (!texts.length) return [];
 
-    const pool = getKeyPool();
-    let lastError = null;
-
-    for (let i = 0; i < pool.length; i++) {
-        try {
-            const embedder = getEmbedder(pool[i]);
-            return await embedder.embedDocuments(texts.map(clean));
-        } catch (err) {
-            lastError = err;
-            if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
-                console.warn(`[Embedding Batch] Key ${i} rate limited.`);
-                continue;
-            }
-            throw err;
-        }
+    try {
+        const embedder = getEmbedder();
+        return await embedder.embedDocuments(texts.map(clean));
+    } catch (err) {
+        console.error("[Ollama Embedding Batch] Error:", err.message);
+        throw err;
     }
-    throw lastError;
 }
 
 /**
@@ -74,8 +52,7 @@ function clean(text) {
 
 /**
  * Generate deterministic memory id
-*/
-
+ */
 export function memoryId(text) {
     return crypto.createHash("sha1").update(text).digest("hex");
 }
