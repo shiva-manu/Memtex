@@ -20,18 +20,7 @@ function getConversationModel(provider) {
     }
 }
 
-function getMessageModel(provider) {
-    switch (provider) {
-        case "chatgpt":
-            return prisma.chatgptMessage;
-        case "gemini":
-            return prisma.geminiMessage;
-        case "claude":
-            return prisma.claudeMessage;
-        default:
-            throw new Error(`Unknown provider: ${provider}`);
-    }
-}
+// getMessageModel is removed as we now use JSON blobs in the conversation table
 
 /**
  * Register a provider sync for a user
@@ -72,7 +61,7 @@ export async function getUserSyncedProviders(userId) {
  * This stores the chat in the provider-specific table,
  * then enqueues it for summarization + vectorization.
  */
-export async function syncConversation({ userId, provider, title, messages }) {
+export async function syncConversation({ userId, provider, title, externalId, messages }) {
     if (!VALID_PROVIDERS.includes(provider)) {
         throw new Error(`Invalid provider: ${provider}`);
     }
@@ -82,28 +71,30 @@ export async function syncConversation({ userId, provider, title, messages }) {
     }
 
     const conversationModel = getConversationModel(provider);
-    const messageModel = getMessageModel(provider);
+
+    // 1. Check for existing conversation with the same externalId to avoid duplicates
+    if (externalId) {
+        const existing = await conversationModel.findUnique({
+            where: { externalId }
+        });
+
+        if (existing) {
+            console.log(`[Sync] Conversation ${externalId} already exists. Skipping duplication.`);
+            return existing;
+        }
+    }
 
     // Use a transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
-        // 1. Create conversation in provider-specific table
+        // 1. Create conversation in provider-specific table with messages as JSON
         const conversation = await getConversationModelFromTx(tx, provider).create({
             data: {
                 userId,
+                externalId,
                 title: title || `${provider} Sync`,
+                messages: messages, // Stored as JSON blob
                 imported: true
             }
-        });
-
-        // 2. Insert messages into provider-specific messages table
-        const messageData = messages.map((msg) => ({
-            conversationId: conversation.id,
-            role: msg.role || "user",
-            content: msg.content
-        }));
-
-        await getMessageModelFromTx(tx, provider).createMany({
-            data: messageData
         });
 
         return conversation;
@@ -138,6 +129,7 @@ export async function syncBatchConversations({ userId, provider, conversations }
                 userId,
                 provider,
                 title: convo.title,
+                externalId: convo.id || convo.externalId,
                 messages: convo.messages
             });
             results.push({ success: true, conversationId: result.id, title: convo.title });
@@ -163,13 +155,7 @@ export async function getProviderConversations(userId, provider, { limit = 20, o
         where: { userId },
         orderBy: { createdAt: "desc" },
         take: limit,
-        skip: offset,
-        include: {
-            messages: {
-                orderBy: { createdAt: "asc" },
-                take: 50
-            }
-        }
+        skip: offset
     });
 }
 
@@ -215,17 +201,6 @@ function getConversationModelFromTx(tx, provider) {
     }
 }
 
-function getMessageModelFromTx(tx, provider) {
-    switch (provider) {
-        case "chatgpt":
-            return tx.chatgptMessage;
-        case "gemini":
-            return tx.geminiMessage;
-        case "claude":
-            return tx.claudeMessage;
-        default:
-            throw new Error(`Unknown provider: ${provider}`);
-    }
-}
+// getMessageModelFromTx removed
 
 export { VALID_PROVIDERS };

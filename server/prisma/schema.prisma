@@ -26,79 +26,45 @@ model SyncProvider {
   @@map("sync_providers")
 }
 
-// ─── ChatGPT Conversations ───────────────────────────────────────
+// ─── Unified Conversations (One row per chat) ─────────────────────
+// We consolidate multiple message rows into a single JSON field
 model ChatgptConversation {
-  id        String           @id @default(uuid())
-  userId    String           @map("user_id")
-  title     String
-  imported  Boolean          @default(false)
-  createdAt DateTime         @default(now()) @map("created_at")
-  messages  ChatgptMessage[]
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  externalId String?  @unique @map("external_id")
+  title      String
+  messages   Json     @default("[]") // Stores {role, content} array
+  imported   Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("chatgpt_conversations")
 }
 
-model ChatgptMessage {
-  id             String              @id @default(uuid())
-  conversationId String              @map("conversation_id")
-  role           String
-  content        String
-  createdAt      DateTime            @default(now()) @map("created_at")
-  conversation   ChatgptConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@map("chatgpt_messages")
-}
-
-// ─── Gemini Conversations ────────────────────────────────────────
 model GeminiConversation {
-  id        String          @id @default(uuid())
-  userId    String          @map("user_id")
-  title     String
-  imported  Boolean         @default(false)
-  createdAt DateTime        @default(now()) @map("created_at")
-  messages  GeminiMessage[]
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  externalId String?  @unique @map("external_id")
+  title      String
+  messages   Json     @default("[]")
+  imported   Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("gemini_conversations")
 }
 
-model GeminiMessage {
-  id             String             @id @default(uuid())
-  conversationId String             @map("conversation_id")
-  role           String
-  content        String
-  createdAt      DateTime           @default(now()) @map("created_at")
-  conversation   GeminiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@map("gemini_messages")
-}
-
-// ─── Claude Conversations ────────────────────────────────────────
 model ClaudeConversation {
-  id        String          @id @default(uuid())
-  userId    String          @map("user_id")
-  title     String
-  imported  Boolean         @default(false)
-  createdAt DateTime        @default(now()) @map("created_at")
-  messages  ClaudeMessage[]
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  externalId String?  @unique @map("external_id")
+  title      String
+  messages   Json     @default("[]")
+  imported   Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("claude_conversations")
-}
-
-model ClaudeMessage {
-  id             String             @id @default(uuid())
-  conversationId String             @map("conversation_id")
-  role           String
-  content        String
-  createdAt      DateTime           @default(now()) @map("created_at")
-  conversation   ClaudeConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@map("claude_messages")
 }
 
 // ─── Unified Summaries (cross-provider) ──────────────────────────

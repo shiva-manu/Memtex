@@ -16,7 +16,7 @@ import {
 export async function syncSingleConversation(req, res) {
     try {
         const { provider } = req.params;
-        const { title, messages } = req.body;
+        const { title, messages, id, externalId } = req.body;
 
         if (!VALID_PROVIDERS.includes(provider)) {
             return res.status(400).json({
@@ -32,6 +32,7 @@ export async function syncSingleConversation(req, res) {
             userId: req.user.id,
             provider,
             title,
+            externalId: id || externalId,
             messages
         });
 

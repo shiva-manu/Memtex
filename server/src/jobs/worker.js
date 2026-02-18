@@ -9,15 +9,14 @@ import crypto from "crypto";
 
 import connection from "../db/redis.js";
 
-// ─── Provider-specific message fetchers ─────────────────────────
-function getMessageModel(provider) {
+function getConversationModel(provider) {
   switch (provider) {
     case "chatgpt":
-      return prisma.chatgptMessage;
+      return prisma.chatgptConversation;
     case "gemini":
-      return prisma.geminiMessage;
+      return prisma.geminiConversation;
     case "claude":
-      return prisma.claudeMessage;
+      return prisma.claudeConversation;
     default:
       return null;
   }
@@ -32,29 +31,24 @@ export const memoryWorker = new Worker(
         const { conversationId, userId, provider } = job.data;
         console.log(`[Worker] Processing conversation ${conversationId} for user ${userId} (${provider})`);
 
-        // 1. Fetch messages from the correct provider table
-        let messages = [];
-        const messageModel = getMessageModel(provider);
-
-        if (messageModel) {
-          // Provider-specific table
-          messages = await messageModel.findMany({
-            where: { conversationId },
-            select: { content: true },
-            take: 50
-          });
-        } else {
-          // Fallback: try legacy table (for old data without provider)
+        // 1. Fetch conversation from the correct provider table
+        const conversationModel = getConversationModel(provider);
+        if (!conversationModel) {
           console.warn(`Unknown provider "${provider}", skipping.`);
           return;
         }
 
-        if (!messages?.length) {
+        const conversation = await conversationModel.findUnique({
+          where: { id: conversationId },
+          select: { messages: true }
+        });
+
+        if (!conversation || !Array.isArray(conversation.messages) || conversation.messages.length === 0) {
           console.log(`No messages found for conversation ${conversationId} (provider: ${provider})`);
           return;
         }
 
-        const text = messages.map((m) => m.content).join("\n");
+        const text = conversation.messages.map((m) => m.content).join("\n");
         console.log(`[Worker] Concat text length: ${text.length} chars`);
 
         // 2. Summarize using LLM (with fallback to raw text if quota is hit)

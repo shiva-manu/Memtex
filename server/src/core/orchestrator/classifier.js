@@ -1,6 +1,6 @@
 // modules/orchestrator/classifier.js
 
-import { cheapLLM } from "../../config/llm.js";
+import { smartInvoke } from "../../config/llm.js";
 
 /**
  * Possible query types
@@ -35,7 +35,7 @@ Query:
 `;
 
     try {
-        const response = await cheapLLM.invoke(prompt);
+        const response = await smartInvoke(prompt, 0); // Use fallback-protected invoker
         const label = response.content.trim().toUpperCase();
 
         if (Object.values(QUERY_TYPES).includes(label)) {

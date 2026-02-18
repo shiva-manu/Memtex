@@ -53,6 +53,7 @@ export async function importController(req, res) {
       userId: req.user.id,
       provider,
       title,
+      externalId: req.body.id || req.body.externalId, // Map from Extension ID
       messages: messageData
     });
 

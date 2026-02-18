@@ -1,40 +1,70 @@
 import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
-import { env } from "../../config/env.js";
 import crypto from "crypto";
+import { getKeyPool } from "../../config/llm.js";
 
-const embedder = new GoogleGenerativeAIEmbeddings({
-    apiKey: env.GOOGLE_API_KEY,
-    model: "gemini-embedding-001", // Using available model
-    apiVersion: "v1beta",
-});
-
-
-
-
+function getEmbedder(apiKey) {
+    return new GoogleGenerativeAIEmbeddings({
+        apiKey: apiKey,
+        model: "text-embedding-004", // Fixed model name
+        apiVersion: "v1beta",
+    });
+}
 
 /**
- * Embed single text
-*/
-
+ * Embed single text with fallback
+ */
 export async function embedText(text) {
     if (!text || typeof text !== "string") {
         throw new Error("Invalid text for embedding");
     }
-    return embedder.embedQuery(clean(text));
+
+    const pool = getKeyPool();
+    let lastError = null;
+
+    for (let i = 0; i < pool.length; i++) {
+        try {
+            const embedder = getEmbedder(pool[i]);
+            return await embedder.embedQuery(clean(text));
+        } catch (err) {
+            lastError = err;
+            if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
+                console.warn(`[Embedding] Key ${i} rate limited. Retrying with next key...`);
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastError;
 }
 
 /**
- * Embed multiple texts
-*/
-
+ * Embed multiple texts with fallback
+ */
 export async function embedBatch(texts = []) {
     if (!texts.length) return [];
-    return embedder.embedDocuments(texts.map(clean));
+
+    const pool = getKeyPool();
+    let lastError = null;
+
+    for (let i = 0; i < pool.length; i++) {
+        try {
+            const embedder = getEmbedder(pool[i]);
+            return await embedder.embedDocuments(texts.map(clean));
+        } catch (err) {
+            lastError = err;
+            if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
+                console.warn(`[Embedding Batch] Key ${i} rate limited.`);
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw lastError;
 }
 
 /**
  * Small cleanup to improve embedding quality
-*/
+ */
 function clean(text) {
     return text
         .replace(/\s+/g, " ")

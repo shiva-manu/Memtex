@@ -1,7 +1,7 @@
 import { classifyQuery } from "./classifier.js";
 import { retrieveMemory } from "../memory/retrieve.js";
 import { buildPrompt } from "./prompt.js";
-import { reasoningLLM } from "../../config/llm.js";
+import { getStreamingLLM, getKeyPool } from "../../config/llm.js";
 
 
 /**
@@ -34,11 +34,35 @@ export async function* orchestrateStream({ userId, query }) {
 
   // 4. reasoning model generates answer as a stream
   console.log("Calling reasoningLLM.stream...");
-  const stream = await reasoningLLM.stream(prompt);
+  let stream;
+  const pool = getKeyPool();
+
+  for (let i = 0; i < pool.length; i++) {
+    try {
+      console.log(`[Orchestrator] Attempting stream with key index ${i}...`);
+      stream = await getStreamingLLM(i).stream(prompt);
+      break; // Success!
+    } catch (err) {
+      if (err.message.includes("429") || err.message.toLowerCase().includes("quota")) {
+        console.warn(`[Orchestrator] Key ${i} rate limited.`);
+        if (i === pool.length - 1) {
+          yield "⚠️ **Memtex Service Notice**: All available AI keys are currently rate-limited. Please try again in a few minutes.";
+          return;
+        }
+        continue; // Try next key
+      } else {
+        console.error("Orchestration LLM error:", err.message);
+        yield "❌ **Orchestration Error**: I encountered an issue while processing your request.";
+        return;
+      }
+    }
+  }
 
   // 5. yield chunks
-  for await (const chunk of stream) {
-    yield chunk.content;
+  if (stream) {
+    for await (const chunk of stream) {
+      yield chunk.content;
+    }
   }
 }
 
