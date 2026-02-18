@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Provider Enum ────────────────────────────────────────────────
+enum ChatProvider {
+  chatgpt
+  gemini
+  claude
+}
+
+// ─── Tracks which providers a user has synced ─────────────────────
+model SyncProvider {
+  id         String       @id @default(uuid())
+  userId     String       @map("user_id")
+  provider   ChatProvider
+  syncedAt   DateTime     @default(now()) @map("synced_at")
+  lastSyncAt DateTime?    @map("last_sync_at")
+  isActive   Boolean      @default(true) @map("is_active")
+
+  @@unique([userId, provider])
+  @@map("sync_providers")
+}
+
+// ─── ChatGPT Conversations ───────────────────────────────────────
+model ChatgptConversation {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  title     String
+  imported  Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+  messages  ChatgptMessage[]
+
+  @@index([userId])
+  @@map("chatgpt_conversations")
+}
+
+model ChatgptMessage {
+  id             String              @id @default(uuid())
+  conversationId String              @map("conversation_id")
+  role           String
+  content        String
+  createdAt      DateTime            @default(now()) @map("created_at")
+  conversation   ChatgptConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("chatgpt_messages")
+}
+
+// ─── Gemini Conversations ────────────────────────────────────────
+model GeminiConversation {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  title     String
+  imported  Boolean         @default(false)
+  createdAt DateTime        @default(now()) @map("created_at")
+  messages  GeminiMessage[]
+
+  @@index([userId])
+  @@map("gemini_conversations")
+}
+
+model GeminiMessage {
+  id             String             @id @default(uuid())
+  conversationId String             @map("conversation_id")
+  role           String
+  content        String
+  createdAt      DateTime           @default(now()) @map("created_at")
+  conversation   GeminiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("gemini_messages")
+}
+
+// ─── Claude Conversations ────────────────────────────────────────
+model ClaudeConversation {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  title     String
+  imported  Boolean         @default(false)
+  createdAt DateTime        @default(now()) @map("created_at")
+  messages  ClaudeMessage[]
+
+  @@index([userId])
+  @@map("claude_conversations")
+}
+
+model ClaudeMessage {
+  id             String             @id @default(uuid())
+  conversationId String             @map("conversation_id")
+  role           String
+  content        String
+  createdAt      DateTime           @default(now()) @map("created_at")
+  conversation   ClaudeConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("claude_messages")
+}
+
+// ─── Unified Summaries (cross-provider) ──────────────────────────
+model ConversationSummary {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  provider       ChatProvider
+  conversationId String       @map("conversation_id")
+  summary        String
+  modelUsed      String       @map("model_used")
+  vectorized     Boolean      @default(false)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([userId, provider])
+  @@index([conversationId])
+  @@map("conversation_summaries")
+}
+
+model TopicSummary {
+  id        String        @id @default(uuid())
+  userId    String        @map("user_id")
+  provider  ChatProvider?
+  topic     String
+  summary   String
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("topic_summaries")
+}
+
+model UserApiKey {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  key       String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("user_api_keys")
+}

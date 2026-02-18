@@ -1,0 +1,31 @@
+{
+    "manifest_version": 3,
+    "name": "Memtex Sync",
+    "version": "1.0",
+    "description": "Sync your AI chat history to Memtex platform",
+    "permissions": [
+        "storage"
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://chatgpt.com/*",
+                "https://chat.openai.com/*",
+                "https://gemini.google.com/*",
+                "https://claude.ai/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "styles.css"
+            ]
+        }
+    ],
+    "host_permissions": [
+        "http://localhost:3000/*"
+    ]
+}
